@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MedSeg — Segmentation d'images médicales</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo" aria-hidden="true"></span><div><h1>MedSeg</h1>
+    <p>Prétraitement · segmentation conventionnelle · apprentissage profond</p></div></div>
+  <div class="top-actions">
+    <span id="status" class="status" role="status"></span>
+    <button id="btn-run" class="primary" disabled>Lancer la segmentation</button>
+    <a id="btn-export" class="btn" aria-disabled="true">Exporter (.zip)</a>
+  </div>
+</header>
+
+<div class="layout">
+<aside class="panel" id="side">
+  <section class="card" id="sec-image">
+    <h2><span class="n">1</span> Image</h2>
+    <label class="file"><input type="file" id="f-image" accept="image/*"><span>Importer une image</span></label>
+    <label class="file sub"><input type="file" id="f-mask" accept="image/*"><span id="mask-label">Masque de référence (optionnel)</span></label>
+    <div class="row-wrap"><span class="muted">Exemples synthétiques :</span><span id="samples"></span></div>
+    <p id="img-info" class="muted"></p>
+  </section>
+
+  <section class="card" id="sec-pre">
+    <h2><span class="n">2</span> Prétraitement</h2>
+    <div class="row"><select id="op-select" aria-label="Opération"></select><button id="op-add">Ajouter</button></div>
+    <ol id="pipeline" class="pipeline"></ol>
+    <p id="pipeline-empty" class="muted">Aucune étape : l'image originale est utilisée.</p>
+  </section>
+
+  <section class="card" id="sec-seg">
+    <h2><span class="n">3</span> Segmentation</h2>
+    <div class="field"><label for="polarity">Structure cible</label>
+      <select id="polarity"><option value="dark">Zone sombre (glotte, lésion échographique, poumons)</option>
+      <option value="bright">Zone claire (tumeur IRM)</option></select></div>
+    <details class="sub"><summary>Germe / contour initial</summary>
+      <p class="muted">Utilisé par le contour actif, la croissance de région, le watershed à germe, Chan-Vese (disque) et MedSAM. Glissez sur l'image prétraitée pour le placer.</p>
+      <div id="seed-controls"></div></details>
+    <details class="sub"><summary>Post-traitement du masque</summary><div id="post-controls"></div></details>
+    <h3>Méthodes conventionnelles</h3><div id="methods"></div>
+    <h3>Apprentissage profond</h3><div id="dl-methods"></div>
+  </section>
+</aside>
+
+<main>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="t-image" aria-selected="true">Image &amp; prétraitement</button>
+    <button role="tab" data-tab="t-results" aria-selected="false">Résultats</button>
+    <button role="tab" data-tab="t-compare" aria-selected="false">Comparaison</button>
+    <button role="tab" data-tab="t-train" aria-selected="false">Entraîner un U-Net</button>
+  </nav>
+
+  <div id="t-image" class="tabpanel">
+    <div id="empty" class="empty"><h2>Importez une image pour commencer</h2>
+      <p>Chargez une image médicale (PNG, JPG, TIFF…) ou choisissez un exemple dans le panneau de gauche.</p></div>
+    <div id="image-view" hidden>
+      <div class="pair">
+        <figure><figcaption>Originale</figcaption><div class="imgbox"><img id="img-orig" alt="Image originale"></div></figure>
+        <figure><figcaption>Prétraitée <span class="muted">(glissez pour placer le germe)</span></figcaption>
+          <div class="imgbox" id="box-pre"><img id="img-pre" alt="Image prétraitée"><svg id="seed-svg"><circle id="seed-c"/><circle id="seed-dot"/></svg></div></figure>
+      </div>
+      <div class="chips" id="quality"></div>
+      <figure class="hist"><figcaption>Histogrammes (échelle logarithmique)</figcaption><canvas id="hist" height="170"></canvas>
+        <div class="legend"><i style="background:var(--muted)"></i>originale <i style="background:var(--accent)"></i>prétraitée</div></figure>
+    </div>
+  </div>
+
+  <div id="t-results" class="tabpanel" hidden><div id="results-grid" class="grid"><p class="muted">Lancez une segmentation pour voir les résultats.</p></div></div>
+
+  <div id="t-compare" class="tabpanel" hidden>
+    <p id="cmp-empty" class="muted">Lancez une segmentation avec au moins deux méthodes pour comparer.</p>
+    <div id="cmp" hidden>
+      <div class="chips" id="cmp-chips"></div>
+      <div class="cmp-grid">
+        <figure><figcaption>Contours superposés <label class="inline"><input type="checkbox" id="show-gt" checked> référence (jaune)</label></figcaption>
+          <div class="imgbox"><img id="cmp-img" alt="Contours superposés"></div></figure>
+        <figure><figcaption>Curseur : image ↔ <select id="slider-method"></select></figcaption>
+          <div class="imgbox slider" id="slider-box"><img id="sl-a" alt=""><img id="sl-b" alt=""><div class="handle" id="sl-h"></div></div>
+          <input type="range" id="sl-range" min="0" max="100" value="50" aria-label="Position du curseur"></figure>
+      </div>
+      <div class="two">
+        <div><h3>Tableau comparatif</h3><div class="scroll"><table id="cmp-table"></table></div></div>
+        <div><h3>Accord entre méthodes <span class="muted" id="mx-kind"></span></h3>
+          <div class="seg"><button id="mx-dice" aria-pressed="true">Dice</button><button id="mx-iou" aria-pressed="false">IoU</button></div>
+          <div class="scroll"><table id="matrix" class="matrix"></table></div></div>
+      </div>
+      <h3>Graphique</h3>
+      <div class="seg"><button data-bar="dice" aria-pressed="true">Dice vs référence</button><button data-bar="iou" aria-pressed="false">IoU vs référence</button><button data-bar="time" aria-pressed="false">Temps (ms)</button><button data-bar="area" aria-pressed="false">Aire (%)</button></div>
+      <div id="bars" class="bars"></div>
+    </div>
+  </div>
+
+  <div id="t-train" class="tabpanel" hidden>
+    <p id="tr-warn" class="notice" hidden></p>
+    <div class="two-col">
+      <section class="card"><h2><span class="n">1</span> Jeu de données</h2>
+        <p class="muted">Images + masques : « nom.png » et « nom_mask.png » dans le même dossier (format Breast Ultrasound Images / BUSI), ou dossiers <code>images/</code> et <code>masks/</code>.</p>
+        <label class="file"><input type="file" id="tr-zip" accept=".zip"><span id="tr-zip-label">Archive .zip du jeu de données</span></label>
+        <div class="field" style="margin-top:10px"><label for="tr-path">… ou dossier sur cet ordinateur</label>
+          <div class="row"><input type="text" id="tr-path" placeholder="C:\Users\moi\Desktop\Dataset_BUSI_with_GT"><button id="tr-load">Charger</button></div></div>
+        <div class="chips" id="tr-ds"></div></section>
+      <section class="card"><h2><span class="n">2</span> Paramètres d'entraînement</h2>
+        <div id="tr-form" class="form-grid"></div>
+        <div class="row" style="margin-top:12px"><button id="tr-start" class="primary" disabled>Lancer l'entraînement</button><button id="tr-stop" disabled>Arrêter</button></div></section>
+    </div>
+    <section class="card" id="tr-live" hidden><h2>Suivi de l'entraînement</h2>
+      <div class="progress"><i id="tr-bar"></i></div><p id="tr-msg" class="muted"></p>
+      <div class="charts"><figure><figcaption>Perte (loss)</figcaption><canvas id="ch-loss" height="170"></canvas></figure>
+        <figure><figcaption>Accuracy</figcaption><canvas id="ch-acc" height="170"></canvas></figure>
+        <figure><figcaption>Dice / IoU (validation)</figcaption><canvas id="ch-dice" height="170"></canvas></figure></div>
+      <div class="legend" id="tr-legend"></div>
+      <div class="chips" id="tr-metrics"></div><p id="tr-insight" class="notice" hidden></p>
+      <figure id="tr-samples-box" hidden><figcaption>Validation : image · référence · prédiction · contours (jaune = référence, rouge = prédiction)</figcaption><img id="tr-samples" alt="Prédictions sur la validation" style="max-width:100%;border-radius:8px"></figure></section>
+    <section class="card"><h2>Comparer les entraînements</h2>
+      <p class="muted">Tous les modèles entraînés ici sont conservés : comparez par exemple 10 époques, 50 époques et 50 époques avec arrêt anticipé.</p>
+      <div id="tr-runs"></div><div class="seg" id="tr-metric-seg"></div><canvas id="ch-runs" height="220" style="width:100%"></canvas><div class="legend" id="tr-runs-legend"></div></section>
+  </div>
+</main>
+</div>
+<script src="app.js"></script>
+<script src="train.js"></script>
+</body>
+</html>

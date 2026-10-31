@@ -1,0 +1,10 @@
+flask>=3.0
+numpy>=1.26
+opencv-python-headless>=4.9
+scikit-image>=0.22
+scikit-learn>=1.3
+scipy>=1.11
+onnxruntime>=1.17
+# --- Optionnel : modèles Deep Learning ---
+# tensorflow>=2.15          # entraînement du U-Net (onglet « Entraîner ») et chargement de modèles Keras (.keras/.h5/.hdf5)
+# torch transformers        # pour MedSAM / SAM (téléchargement Hugging Face)
